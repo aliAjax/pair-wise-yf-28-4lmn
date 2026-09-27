@@ -1,4 +1,191 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>临床试验随机化</title>
-<style>body{font:16px system-ui;max-width:980px;margin:32px auto;padding:0 16px}select,button{padding:8px;margin:4px}pre{background:#f4f4f4;padding:12px;white-space:pre-wrap}.panel{border:1px solid #bbb;padding:16px;border-radius:8px}</style></head>
-<body><h1>临床试验随机分配与盲法</h1><div class="panel"><select id="user"><option>site1</option><option>site2</option><option>coord</option><option>monitor1</option><option>monitor2</option></select><input id="trial" value="1"><button onclick="load()">查看试验摘要</button></div><pre id="out"></pre>
-<script>async function load(){const r=await fetch(`/api/trials/${trial.value}/summary`,{headers:{"X-User-Id":user.value}});out.textContent=JSON.stringify(await r.json(),null,2)}</script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>临床试验随机化</title>
+<style>
+:root{color-scheme:light;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+body{max-width:1180px;margin:28px auto;padding:0 16px;color:#1f2933}
+h1{margin:0 0 20px;font-size:26px}
+h2{margin:0 0 12px;font-size:19px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.panel{border:1px solid #cbd2d9;border-radius:10px;padding:16px;background:#fff;margin-bottom:16px}
+label{display:block;font-size:13px;color:#52606d;margin:8px 0 4px}
+input,select,button{font:inherit;box-sizing:border-box}
+input,select{width:100%;padding:8px;border:1px solid #9aa5b1;border-radius:6px;background:#fff}
+button{padding:8px 12px;border:0;border-radius:6px;background:#2563eb;color:#fff;cursor:pointer;margin-top:10px}
+button.secondary{background:#52606d}
+button:disabled{background:#9aa5b1;cursor:not-allowed}
+.inline{display:flex;gap:8px;align-items:end}.inline>*{margin:0}.inline input{min-width:120px}
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:8px}
+th,td{border:1px solid #d9e2ec;padding:7px 8px;text-align:left;vertical-align:top}
+th{background:#f0f4f8}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;background:#e4e7eb;font-size:12px}
+.badge.active{background:#dcfce7;color:#166534}.badge.submitted{background:#fef3c7;color:#92400e}.badge.superseded{background:#e5e7eb}
+.muted{color:#616e7c;font-size:13px}.error{color:#b91c1c}.ok{color:#166534}
+#message{min-height:22px;margin:8px 0;font-size:14px}.hidden{display:none!important}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<h1>临床试验随机分配与盲法</h1>
+<div class="panel">
+  <div class="inline">
+    <div><label for="user">当前用户</label><select id="user"><option>site1</option><option>site2</option><option>coord</option><option>monitor1</option><option>monitor2</option></select></div>
+    <div style="flex:1"><label for="trial">试验 ID</label><input id="trial" value="1"></div>
+    <button onclick="load()">查看</button>
+    <button class="secondary" onclick="loadParticipants()">刷新受试者列表</button>
+  </div>
+  <div id="message" class="muted"></div>
+</div>
+
+<div class="grid">
+  <section class="panel">
+    <h2>入组受试者</h2>
+    <p class="muted">按当前生效方案分配；提交中的修订不会影响入组。因素格式：risk=low,age=65+</p>
+    <label for="externalId">受试者编号</label><input id="externalId" placeholder="S001-001">
+    <label for="factors">分层因素值</label><input id="factors" placeholder="risk=low">
+    <button onclick="enroll()">提交入组</button>
+  </section>
+
+  <section class="panel" id="amendmentPanel">
+    <h2>提交方案修订</h2>
+    <p class="muted">协调员提交新版分组、分层因素、区组长度和随机种子；监查员确认后才生效。旧受试者和旧随机表保持原样。</p>
+    <label for="newVersion">新版方案版本</label><input id="newVersion" placeholder="v2.0">
+    <label for="newArms">新版分组（逗号分隔）</label><input id="newArms" placeholder="A,B,C">
+    <label for="newStrata">新版分层因素（逗号分隔）</label><input id="newStrata" placeholder="risk,age">
+    <label for="newBlock">新区组长度</label><input id="newBlock" type="number" placeholder="6">
+    <label for="newSeed">新随机种子（至少 8 位）</label><input id="newSeed" placeholder="seed-2026-002">
+    <button onclick="submitAmendment()">提交修订</button>
+  </section>
+
+  <section class="panel" id="approvalPanel">
+    <h2>确认方案修订</h2>
+    <p class="muted">有待审批揭盲申请时不能批准。批准后新入组只使用新版，不补入旧版剩余名额。</p>
+    <label for="amendmentId">待确认修订 ID</label><input id="amendmentId" type="number">
+    <button onclick="approveAmendment()">监查员确认生效</button>
+  </section>
+</div>
+
+<section class="panel">
+  <h2>试验摘要</h2>
+  <div id="summary"><div class="muted">请选择试验并点击“查看”。</div></div>
+</section>
+
+<section class="panel">
+  <h2>受试者列表（独立列表）</h2>
+  <div id="participants"><div class="muted">列表会显示每名受试者实际使用的方案版本。</div></div>
+</section>
+
+<script>
+const $ = id => document.getElementById(id);
+let summaryData = null;
+
+function esc(value){
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+function jsonText(value){return esc(JSON.stringify(value));}
+function headers(){return {'X-User-Id':$('user').value,'Content-Type':'application/json'};}
+async function api(path, options={}){
+  const response = await fetch(path,{headers:headers(),...options});
+  const data = await response.json();
+  if(!response.ok) throw new Error(data.error?.message || `请求失败（${response.status}）`);
+  return data;
+}
+function setMessage(text, ok=false){$('message').textContent=text;$('message').className=ok?'ok':'error';}
+function splitList(value){return value.split(',').map(x=>x.trim()).filter(Boolean);}
+function parseFactors(value){
+  const factors={};
+  for(const part of value.split(',').map(x=>x.trim()).filter(Boolean)){
+    const at=part.indexOf('=');
+    if(at<=0) throw new Error('因素格式必须为 名称=值，例如 risk=low');
+    factors[part.slice(0,at).trim()]=part.slice(at+1).trim();
+  }
+  return factors;
+}
+function badge(status){return `<span class="badge ${esc(status)}">${esc(statusText(status))}</span>`;}
+function statusText(status){return {draft:'草稿',submitted:'待监查员确认',active:'生效中',superseded:'已停用'}[status]||status;}
+function renderRolePanels(){
+  const role=$('user').value;
+  $('amendmentPanel').classList.toggle('hidden', role!=='coord');
+  $('approvalPanel').classList.toggle('hidden', !role.startsWith('monitor'));
+}
+function renderSummary(data){
+  summaryData=data;
+  const trial=data.trial;
+  const pending=(data.protocol_versions||[]).find(v=>v.status==='submitted');
+  if(pending) $('amendmentId').value=pending.id;
+  const versionsRows=(data.protocol_versions||[]).map(v=>`
+    <tr><td>${v.id}</td><td>${v.version_no}</td><td>${esc(v.protocol_version)}</td><td>${badge(v.status)}</td>
+    <td>${esc(v.arms.join(', '))}</td><td>${esc(v.strata_factors.join(', '))}</td><td>${v.block_size}</td>
+    <td>${v.approved_at?esc(v.approved_at):(v.submitted_at?esc(v.submitted_at):esc(v.created_at))}</td></tr>`).join('');
+  const byVersion=(data.by_protocol_version||[]).map(x=>`<tr><td>${esc(x.protocol_version)}</td><td>${badge(x.status)}</td><td>${x.count}</td></tr>`).join('');
+  const summaryParticipants=(data.participants||[]).map(p=>`
+    <tr><td>${p.id}</td><td>${esc(p.external_id)}</td><td>${esc(p.site_id)}</td><td>${esc(p.allocation_code)}</td>
+    <td>${p.version_no}</td><td>${esc(p.protocol_version)}</td><td>${badge(p.protocol_status)}</td></tr>`).join('');
+  $('summary').innerHTML=`
+    <table><tbody>
+      <tr><th>试验</th><td>${esc(trial.name)}（ID ${trial.id}）</td><th>状态</th><td>${esc(trial.status)}</td></tr>
+      <tr><th>当前生效版本</th><td colspan="3"><strong>${esc(trial.protocol_version)}</strong> ${pending?'；另有 '+badge('submitted')+'：'+esc(pending.protocol_version):''}</td></tr>
+    </tbody></table>
+    <h2 style="margin-top:16px">方案版本</h2>
+    <table><thead><tr><th>ID</th><th>序号</th><th>版本</th><th>状态</th><th>分组</th><th>分层因素</th><th>区组</th><th>时间</th></tr></thead><tbody>${versionsRows}</tbody></table>
+    <h2 style="margin-top:16px">按版本汇总</h2>
+    <table><thead><tr><th>版本</th><th>状态</th><th>受试者数</th></tr></thead><tbody>${byVersion}</tbody></table>
+    <h2 style="margin-top:16px">摘要中的受试者版本记录</h2>
+    <table><thead><tr><th>ID</th><th>外部编号</th><th>中心</th><th>随机号</th><th>版本序号</th><th>使用版本</th><th>版本状态</th></tr></thead><tbody>${summaryParticipants}</tbody></table>`;
+}
+function renderParticipants(data){
+  const items=data.items||[];
+  const showArm=items.some(p=>'arm' in p);
+  const rows=items.map(p=>`
+    <tr><td>${p.id}</td><td>${esc(p.external_id)}</td><td>${esc(p.site_id)}</td><td>${esc(p.allocation_code)}</td>
+    <td>${esc(p.status)}</td><td>${p.version_no}</td><td>${esc(p.protocol_version)}</td><td>${badge(p.protocol_status||'active')}</td>
+    <td>${jsonText(p.strata_factors)}</td><td>${p.block_size}</td>${showArm?`<td>${esc(p.arm)}</td>`:''}</tr>`).join('');
+  $('participants').innerHTML=`
+    <table><thead><tr><th>ID</th><th>外部编号</th><th>中心</th><th>随机号</th><th>状态</th><th>版本序号</th><th>使用版本</th><th>版本状态</th><th>分层因素</th><th>区组</th>${showArm?'<th>揭盲分组</th>':''}</tr></thead><tbody>${rows}</tbody></table>`;
+}
+async function load(){
+  const id=$('trial').value.trim();
+  if(!id) return setMessage('请输入试验 ID');
+  setMessage('加载中……',true);
+  try{
+    const [summary,participants]=await Promise.all([
+      api(`/api/trials/${id}/summary`),
+      api(`/api/trials/${id}/participants`)
+    ]);
+    renderSummary(summary);renderParticipants(participants);setMessage('已加载',true);
+  }catch(err){setMessage(err.message);}
+}
+async function loadParticipants(){
+  try{renderParticipants(await api(`/api/trials/${$('trial').value.trim()}/participants`));setMessage('受试者列表已刷新',true);}
+  catch(err){setMessage(err.message);}
+}
+async function enroll(){
+  try{
+    const result=await api(`/api/trials/${$('trial').value.trim()}/enroll`,{method:'POST',body:JSON.stringify({external_id:$('externalId').value.trim(),factors:parseFactors($('factors').value)})});
+    setMessage(`入组成功：${result.external_id} 使用方案 ${result.protocol_version}，随机号 ${result.allocation_code}`,true);await load();
+  }catch(err){setMessage(err.message);}
+}
+async function submitAmendment(){
+  try{
+    const block=parseInt($('newBlock').value,10);
+    const result=await api(`/api/trials/${$('trial').value.trim()}/protocol-amendments`,{method:'POST',body:JSON.stringify({
+      protocol_version:$('newVersion').value.trim(),arms:splitList($('newArms').value),
+      strata_factors:splitList($('newStrata').value),block_size:block,seed:$('newSeed').value.trim()
+    })});
+    setMessage(`修订 ${result.protocol_version} 已提交，等待监查员确认`,true);$('amendmentId').value=result.id;await load();
+  }catch(err){setMessage(err.message);}
+}
+async function approveAmendment(){
+  try{
+    const result=await api(`/api/trials/${$('trial').value.trim()}/protocol-amendments/${$('amendmentId').value}`,{method:'POST'});
+    setMessage(`修订 ${result.protocol_version} 已确认生效；后续入组使用新版`,true);await load();
+  }catch(err){setMessage(err.message);}
+}
+$('user').addEventListener('change',()=>{renderRolePanels();if(summaryData)load();});
+renderRolePanels();
+</script>
+</body>
+</html>

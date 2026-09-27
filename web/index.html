@@ -1,4 +1,15 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>临床试验随机化</title>
-<style>body{font:16px system-ui;max-width:980px;margin:32px auto;padding:0 16px}select,button{padding:8px;margin:4px}pre{background:#f4f4f4;padding:12px;white-space:pre-wrap}.panel{border:1px solid #bbb;padding:16px;border-radius:8px}</style></head>
-<body><h1>临床试验随机分配与盲法</h1><div class="panel"><select id="user"><option>site1</option><option>site2</option><option>coord</option><option>monitor1</option><option>monitor2</option></select><input id="trial" value="1"><button onclick="load()">查看试验摘要</button></div><pre id="out"></pre>
-<script>async function load(){const r=await fetch(`/api/trials/${trial.value}/summary`,{headers:{"X-User-Id":user.value}});out.textContent=JSON.stringify(await r.json(),null,2)}</script></body></html>
+<style>body{font:16px system-ui;max-width:980px;margin:32px auto;padding:0 16px}select,button,input{padding:8px;margin:4px}pre{background:#f4f4f4;padding:12px;white-space:pre-wrap}.panel{border:1px solid #bbb;padding:16px;border-radius:8px;margin-bottom:12px}</style></head>
+<body><h1>临床试验随机分配与盲法</h1>
+<div class="panel"><select id="user"><option>site1</option><option>site2</option><option>coord</option><option>monitor1</option><option>monitor2</option></select><input id="trial" value="1"><button onclick="loadSummary()">查看试验摘要</button><button onclick="loadParticipants()">查看受试者列表</button><button onclick="loadAmendments()">查看方案修订</button></div>
+<div class="panel"><h2>提交方案修订（协调员）</h2><input id="av" placeholder="新版本号 如 v2.0"><input id="aarms" placeholder="分组,英文逗号分隔"><input id="astrata" placeholder="分层因素,英文逗号分隔"><input id="ablock" placeholder="区组长度"><input id="aseed" placeholder="新随机种子(至少8位)"><button onclick="submitAmendment()">提交修订</button></div>
+<div class="panel"><h2>批准方案修订（监查员）</h2><input id="amid" placeholder="修订ID"><button onclick="approveAmendment()">确认并生效</button></div>
+<pre id="out"></pre>
+<script>
+async function api(path,method,body){const r=await fetch(path,{method,headers:{"X-User-Id":user.value,"Content-Type":"application/json"},body:body?JSON.stringify(body):undefined});out.textContent=JSON.stringify(await r.json(),null,2)}
+function loadSummary(){api(`/api/trials/${trial.value}/summary`,"GET")}
+function loadParticipants(){api(`/api/trials/${trial.value}/participants`,"GET")}
+function loadAmendments(){api(`/api/trials/${trial.value}/amendments`,"GET")}
+function submitAmendment(){api(`/api/trials/${trial.value}/amendments`,"POST",{protocol_version:av.value,arms:aarms.value.split(",").map(s=>s.trim()).filter(Boolean),strata_factors:astrata.value.split(",").map(s=>s.trim()).filter(Boolean),block_size:Number(ablock.value),seed:aseed.value})}
+function approveAmendment(){api(`/api/amendments/${amid.value}/approve`,"POST")}
+</script></body></html>

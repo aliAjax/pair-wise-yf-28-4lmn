@@ -22,10 +22,15 @@ python3 -m unittest -v
 - `POST /api/trials`：创建草稿试验，指定分组、分层因素、区组长度和随机种子。
 - `POST /api/trials/{id}/protocol`：入组前修改方案；一旦入组即锁定。
 - `POST /api/trials/{id}/start`：开始入组。
+- `POST /api/trials/{id}/amendments`：协调员提交方案修订（新版分组、分层因素、区组长度、随机种子），同一试验同时只允许一个待确认修订。
+- `GET /api/trials/{id}/amendments`：查看修订记录（协调员、监查员）。
+- `POST /api/amendments/{id}/approve`：监查员确认后生效；存在待审批揭盲申请时拒绝批准，原方案保持不变。
 - `POST /api/trials/{id}/enroll`：按当前用户中心入组；响应只返回分配编号，不返回分组。
-- `GET /api/trials/{id}/participants`：分中心返回数据，中心用户看不到其他中心。
+- `GET /api/trials/{id}/participants`：分中心返回数据，中心用户看不到其他中心；每条记录带入组时使用的方案版本。
 - `POST /api/participants/{id}/unblinding-requests`：发起揭盲。
 - `POST /api/unblinding-requests/{id}/approve`：两人独立审批；同一人不能审批两次。
-- `GET /api/trials/{id}/summary`：中心级汇总和审计记录。
+- `GET /api/trials/{id}/summary`：中心级汇总、按方案版本统计和审计记录。
 
-随机表按“试验种子 + 中心 + 分层因素”确定性生成，每个区组为分组数的整数倍并打乱；分配在 SQLite `BEGIN IMMEDIATE` 事务中原子占用。实现适合作为流程原型，不替代经认证的临床试验随机化系统。
+方案修订生效后，已入组受试者保留原分配编号、分组和方案版本；之后入组的受试者统一使用新版方案，新版按“版本 + 中心 + 分层因素”生成全新的随机表，不补入旧版剩余名额。
+
+随机表按“试验种子 + 方案版本 + 中心 + 分层因素”确定性生成，每个区组为分组数的整数倍并打乱；分配在 SQLite `BEGIN IMMEDIATE` 事务中原子占用。实现适合作为流程原型，不替代经认证的临床试验随机化系统。
